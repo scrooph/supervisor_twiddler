@@ -1,4 +1,5 @@
 from supervisor.options import UnhosedConfigParser
+from supervisor.options import ProcessGroupConfig
 from supervisor.datatypes import list_of_strings
 from supervisor.states import SupervisorStates
 from supervisor.states import STOPPED_STATES
@@ -40,6 +41,43 @@ class TwiddlerNamespaceRPCInterface:
         """
         self._update('getAPIVersion')
         return API_VERSION
+    
+    def addProgram(self, program_name, program_options):
+        """ Add a new program.  Depending on the
+            numprocs option, this will result in one or more processes.
+            
+        @param string  program_name     Name of the new process in the process table
+        @param struct  program_options  Program options, same as in supervisord.conf
+        @return boolean                 Always True unless error
+        """
+        self._update('addProgram')
+        
+        group = self.supervisord.options.process_group_configs
+        
+        # make configparser instance for program options
+        section_name = 'program:%s' % program_name
+        parser = self._makeConfigParser(section_name, program_options)
+
+        # make process configs from parser instance
+        options = self.supervisord.options
+        try:
+            new_configs = options.processes_from_section(parser, section_name, program_name)
+        except ValueError as e:
+            raise RPCError(SupervisorFaults.INCORRECT_PARAMETERS, e)
+        priority = 999
+        group.append(
+            ProcessGroupConfig(self, program_name, priority, new_configs)
+            )
+
+        for config in self.supervisord.options.process_group_configs:
+            if config.name == program_name:
+                result = self.supervisord.add_process_group(config)
+                if not result:
+                    raise RPCError(Faults.ALREADY_ADDED, name)
+                return True
+        raise RPCError(Faults.BAD_NAME, name)
+        
+        return True
 
     def getGroupNames(self):
         """ Return an array with the names of the process groups.
